@@ -1,71 +1,67 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-import cv2
+from flask import Blueprint, request, jsonify, render_template
 import face_recognition
-import os
 import numpy as np
-from database.db import conectar_bd
+import base64
+import os
 from datetime import datetime
+from database.db import conectar_bd
+from PIL import Image
+from io import BytesIO
 
 registro = Blueprint('registro', __name__)
 
-
 @registro.route('/registro', methods=['GET', 'POST'])
 def registrar_usuario():
-    if request.method == 'POST':
-        nombre = request.form['nombre']
-        email = request.form['email']
-        cargo = request.form['cargo']
+    if request.method == 'GET':
+        return render_template('registro.html')
+
+    try:
+        data = request.get_json()
+        nombre = data['nombre']
+        email = data['email']
+        cargo = data['cargo']
+        imagenes_base64 = data['imagenes']  # Lista de 4 imágenes
+
+        if not imagenes_base64 or len(imagenes_base64) < 4:
+            return jsonify({'error': 'Se requieren 4 imágenes'}), 400
 
         # Crear carpeta si no existe
-        carpeta_rostros = 'app/static/rostros'
-        os.makedirs(carpeta_rostros, exist_ok=True)
+        carpeta = 'app/static/rostros'
+        os.makedirs(carpeta, exist_ok=True)
 
-        # Inicializar cámara
-        cam = cv2.VideoCapture(0)
-        imagenes = []
-        count = 0
+        vector = None
+        ruta_guardada = None
 
-        while count < 4:
-            ret, frame = cam.read()
-            if not ret:
+        for idx, base64_img in enumerate(imagenes_base64):
+            img_data = base64.b64decode(base64_img.split(',')[1])
+            img_path = f"{carpeta}/{nombre}_{idx}.jpg"
+
+            with open(img_path, 'wb') as f:
+                f.write(img_data)
+
+            image = face_recognition.load_image_file(BytesIO(img_data))
+            codificaciones = face_recognition.face_encodings(image)
+
+            if codificaciones:
+                vector = np.array(codificaciones[0]).tobytes()
+                ruta_guardada = img_path
                 break
-            cv2.imshow("Captura de rostro - Presiona 'c' para capturar", frame)
-            key = cv2.waitKey(1)
-            if key == ord('c'):
-                ruta_imagen = f"{carpeta_rostros}/{nombre}_{count}.jpg"
-                cv2.imwrite(ruta_imagen, frame)
-                imagenes.append(ruta_imagen)
-                count += 1
 
-        cam.release()
-        cv2.destroyAllWindows()
+        if vector is None:
+            return jsonify({'error': '❌ No se detectó ningún rostro válido en las imágenes'}), 400
 
-        # Codificar rostros y almacenar vector
-        # Codificar rostros y almacenar vector
-        imagen = face_recognition.load_image_file(imagenes[0])
-        codificaciones = face_recognition.face_encodings(imagen)
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            INSERT INTO usuarios (nombre, cargo, email, ruta_foto, vector_rostro, fecha_registro)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (nombre, cargo, email, ruta_guardada, vector, datetime.now()))
+        print(f"[OK] Usuario registrado: {nombre} - {email}")
+        conexion.commit()
+        conexion.close()
 
-        if not codificaciones:
-            flash("❌ No se detectó ningún rostro en la imagen. Asegúrate de estar frente a la cámara.", "danger")
-            return redirect(url_for('registro.registrar_usuario'))
 
-        codificacion = codificaciones[0]
-        vector = np.array(codificacion).tobytes()
-        ruta_foto = imagenes[0]
+        return jsonify({'mensaje': '✅ Usuario registrado con éxito'}), 200
 
-        try:
-            conexion = conectar_bd()
-            cursor = conexion.cursor()
-            cursor.execute("""
-                           INSERT INTO usuarios (nombre, cargo, email, ruta_foto, vector_rostro, fecha_registro)
-                           VALUES (%s, %s, %s, %s, %s, %s)
-                           """, (nombre, cargo, email, ruta_foto, vector, datetime.now()))
-            conexion.commit()
-            conexion.close()
-            flash("Usuario registrado con éxito", "success")
-        except Exception as e:
-            flash(f"Error al registrar: {e}", "danger")
-
-        return redirect(url_for('registro.registrar_usuario'))
-
-    return render_template('registro.html')
+    except Exception as e:
+        return jsonify({'error': f'❌ Error al registrar: {str(e)}'}), 500

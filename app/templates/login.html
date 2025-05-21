@@ -1,13 +1,45 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Login Facial</title>
+  <meta charset="UTF-8">
+  <title>Login Facial</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
-    <h2>Autenticación facial</h2>
-    <form method="post">
-        <button type="submit">Capturar y autenticar rostro</button>
-    </form>
+  <h2>Login con Reconocimiento Facial</h2>
+
+  <video id="video" width="320" height="240" autoplay></video><br>
+  <button onclick="capturar()">📸 Capturar y Autenticar</button>
+
+  <p id="resultado"></p>
+
+  <script>
+    const video = document.getElementById('video');
+    const resultado = document.getElementById('resultado');
+
+    // Activar cámara
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => video.srcObject = stream)
+      .catch(err => alert("No se pudo acceder a la cámara: " + err));
+
+    function capturar() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 320;
+      canvas.height = 240;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const base64 = canvas.toDataURL('image/jpeg');
+
+      axios.post('/login', { imagen: base64 })
+        .then(res => resultado.innerText = res.data.mensaje)
+        .catch(err => {
+          if (err.response && err.response.data && err.response.data.error) {
+            resultado.innerText = err.response.data.error;
+          } else {
+            resultado.innerText = "Error inesperado.";
+          }
+        });
+    }
+  </script>
 </body>
 </html>

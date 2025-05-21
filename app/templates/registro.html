@@ -1,16 +1,90 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Registro de Usuario</title>
+  <meta charset="UTF-8">
+  <title>Registro Facial</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <style>
+    video, canvas, img {
+      border: 1px solid black;
+      margin-bottom: 10px;
+    }
+  </style>
 </head>
 <body>
-    <h2>Registrar Usuario con Rostro</h2>
-    <form method="post">
-        <label>Nombre:</label><input type="text" name="nombre" required><br>
-        <label>Cargo:</label><input type="text" name="cargo" required><br>
-        <label>Email:</label><input type="email" name="email" required><br>
-        <button type="submit">Registrar y Capturar Rostro</button>
-    </form>
+  <h2>Registro de Usuario con Captura Facial (x4)</h2>
+
+  <form id="form-registro">
+    <label>Nombre:</label><br>
+    <input type="text" name="nombre" required><br>
+    <label>Cargo:</label><br>
+    <input type="text" name="cargo" required><br>
+    <label>Email:</label><br>
+    <input type="email" name="email" required><br><br>
+
+    <video id="video" width="320" height="240" autoplay></video><br>
+    <button type="button" onclick="capturar()">📸 Capturar Imagen</button>
+    <span id="contador">0/4</span><br><br>
+
+    <div id="preview"></div>
+
+    <button type="submit" id="btnEnviar" disabled>✅ Registrar Usuario</button>
+  </form>
+
+  <script>
+    const video = document.getElementById('video');
+    const preview = document.getElementById('preview');
+    const btnEnviar = document.getElementById('btnEnviar');
+    const contador = document.getElementById('contador');
+    const fotos = [];
+
+    // Activar cámara
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => video.srcObject = stream)
+      .catch(err => alert("No se pudo acceder a la cámara: " + err));
+
+    function capturar() {
+      if (fotos.length >= 4) return;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 320;
+      canvas.height = 240;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const base64 = canvas.toDataURL('image/jpeg');
+      fotos.push(base64);
+
+      const img = document.createElement('img');
+      img.src = base64;
+      img.width = 100;
+      preview.appendChild(img);
+
+      contador.textContent = `${fotos.length}/4`;
+      if (fotos.length === 4) {
+        btnEnviar.disabled = false;
+      }
+    }
+
+    document.getElementById('form-registro').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = {
+        nombre: formData.get("nombre"),
+        cargo: formData.get("cargo"),
+        email: formData.get("email"),
+        imagenes: fotos
+      };
+
+      axios.post('/registro', data)
+        .then(res => alert(res.data.mensaje))
+        .catch(err => {
+          if (err.response && err.response.data && err.response.data.error) {
+            alert(err.response.data.error);
+          } else {
+            alert("Error inesperado.");
+          }
+        });
+    });
+  </script>
 </body>
 </html>

@@ -1,69 +1,61 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-import cv2
+from flask import Blueprint, render_template, request, jsonify
 import face_recognition
 import numpy as np
-from database.db import conectar_bd
+import base64
 from datetime import datetime
+from database.db import conectar_bd
+from PIL import Image
+from io import BytesIO
 
 login = Blueprint('login', __name__)
 
 @login.route('/login', methods=['GET', 'POST'])
 def login_usuario():
-    mensaje = ""
+    if request.method == 'GET':
+        return render_template('login.html')
 
-    if request.method == 'POST':
-        cam = cv2.VideoCapture(0)
-        ret, frame = cam.read()
-        cam.release()
+    try:
+        data = request.get_json()
+        imagen_base64 = data['imagen']
 
-        if not ret:
-            flash("No se pudo acceder a la cámara", "danger")
-            return redirect(url_for('login.login_usuario'))
+        # Decodificar imagen
+        img_data = base64.b64decode(imagen_base64.split(',')[1])
+        image = face_recognition.load_image_file(BytesIO(img_data))
 
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        codificaciones = face_recognition.face_encodings(rgb_frame)
-
+        # Obtener codificación facial
+        codificaciones = face_recognition.face_encodings(image)
         if not codificaciones:
-            flash("❌ No se detectó ningún rostro en la imagen.", "danger")
-            return redirect(url_for('login.login_usuario'))
+            return jsonify({'error': '❌ No se detectó ningún rostro en la imagen'}), 400
 
         cod_actual = codificaciones[0]
 
-        try:
-            conexion = conectar_bd()
-            cursor = conexion.cursor()
-            cursor.execute("SELECT id_usuario, nombre, vector_rostro FROM usuarios")
-            usuarios = cursor.fetchall()
+        # Verificar contra usuarios en BD
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("SELECT id_usuario, nombre, vector_rostro FROM usuarios")
+        usuarios = cursor.fetchall()
 
-            reconocido = False
-            for usuario in usuarios:
-                id_usuario, nombre, vector_bytes = usuario
-                vector_guardado = np.frombuffer(vector_bytes, dtype=np.float64)
-
-                resultado = face_recognition.compare_faces([vector_guardado], cod_actual, tolerance=0.5)
-                if resultado[0]:
-                    reconocido = True
-                    ip = request.remote_addr or "127.0.0.1"
-                    cursor.execute("""
-                        INSERT INTO logs_login (id_usuario, ip, estado, emocion, dispositivo)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """, (id_usuario, ip, 'reconocido', 'pendiente', 'PC-local'))
-                    conexion.commit()
-                    flash(f"✅ Usuario reconocido: {nombre}", "success")
-                    break
-
-            if not reconocido:
+        for id_usuario, nombre, vector_bytes in usuarios:
+            vector_guardado = np.frombuffer(vector_bytes, dtype=np.float64)
+            resultado = face_recognition.compare_faces([vector_guardado], cod_actual, tolerance=0.5)
+            if resultado[0]:
+                # Registrar acceso
                 cursor.execute("""
                     INSERT INTO logs_login (id_usuario, ip, estado, emocion, dispositivo)
                     VALUES (%s, %s, %s, %s, %s)
-                """, (None, request.remote_addr, 'fallido', 'desconocido', 'PC-local'))
+                """, (id_usuario, request.remote_addr, 'reconocido', 'pendiente', 'Webcam Navegador'))
                 conexion.commit()
-                flash("❌ Usuario no reconocido", "danger")
+                conexion.close()
+                return jsonify({'mensaje': f"✅ Bienvenido {nombre}"}), 200
 
-            conexion.close()
-        except Exception as e:
-            flash(f"Error en la autenticación: {e}", "danger")
+        # No se reconoció
+        cursor.execute("""
+            INSERT INTO logs_login (id_usuario, ip, estado, emocion, dispositivo)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (None, request.remote_addr, 'fallido', 'desconocido', 'Webcam Navegador'))
+        conexion.commit()
+        conexion.close()
+        return jsonify({'error': '❌ Usuario no reconocido'}), 401
 
-        return redirect(url_for('login.login_usuario'))
-
-    return render_template('login.html', mensaje=mensaje)
+    except Exception as e:
+        return jsonify({'error': f"❌ Error al procesar imagen: {str(e)}"}), 500
