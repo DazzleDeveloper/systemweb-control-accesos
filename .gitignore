@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+*.sqlite3
+*.log
+*.idea/
+.DS_Store
+*.whl
+*.zip
+*.bak
+*.npy
+rostros/
+*.jpg
