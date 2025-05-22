@@ -2,88 +2,158 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Registro Facial</title>
-  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    video, canvas, img {
-      border: 1px solid black;
-      margin-bottom: 10px;
-    }
+    video, canvas { border: 2px solid #000; }
+    #emocion-detectada { font-size: 1.2rem; margin-top: 10px; }
+    #imagenes-preview img { border-radius: 4px; border: 1px solid #ccc; }
   </style>
 </head>
-<body>
-  <h2>Registro de Usuario con Captura Facial (x4)</h2>
+<body class="bg-light">
+  <div class="container py-4">
+    <h2 class="text-center mb-4">📝 Registro de Usuario con Captura Facial (x4)</h2>
 
-  <form id="form-registro">
-    <label>Nombre:</label><br>
-    <input type="text" name="nombre" required><br>
-    <label>Cargo:</label><br>
-    <input type="text" name="cargo" required><br>
-    <label>Email:</label><br>
-    <input type="email" name="email" required><br><br>
+    <form id="registroForm" class="bg-white p-4 rounded shadow-sm">
+      <div class="row mb-3">
+        <div class="col-md-4">
+          <label class="form-label">Nombre:</label>
+          <input type="text" name="nombre" class="form-control" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Cargo:</label>
+          <input type="text" name="cargo" class="form-control" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Email:</label>
+          <input type="email" name="email" class="form-control" required>
+        </div>
+      </div>
+      <input type="hidden" name="emocion" id="inputEmocion">
 
-    <video id="video" width="320" height="240" autoplay></video><br>
-    <button type="button" onclick="capturar()">📸 Capturar Imagen</button>
-    <span id="contador">0/4</span><br><br>
+      <div class="row mb-3">
+        <div class="col-md-6 text-center">
+          <video id="video" width="300" height="250" autoplay muted class="rounded"></video><br>
+          <button type="button" id="capturar" class="btn btn-primary mt-2">📸 Capturar Imagen</button>
+          <p class="mt-2"><strong><span id="contador">0</span>/4</strong></p>
+          <button id="registrarBtn" type="submit" class="btn btn-success" disabled>✅ Registrar Usuario</button>
+        </div>
 
-    <div id="preview"></div>
+        <div class="col-md-6">
+          <h4>🧠 <strong>Emoción Detectada:</strong></h4>
+          <div id="emocion-detectada"><span class="text-muted">🤖 Aún sin detección</span></div>
+        </div>
+      </div>
 
-    <button type="submit" id="btnEnviar" disabled>✅ Registrar Usuario</button>
-  </form>
+      <div id="imagenes-preview" class="d-flex gap-2 flex-wrap"></div>
+    </form>
+  </div>
+
+  <canvas id="canvas" width="300" height="250" style="display: none;"></canvas>
 
   <script>
     const video = document.getElementById('video');
-    const preview = document.getElementById('preview');
-    const btnEnviar = document.getElementById('btnEnviar');
-    const contador = document.getElementById('contador');
-    const fotos = [];
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const capturarBtn = document.getElementById('capturar');
+    const registrarBtn = document.getElementById('registrarBtn');
+    const contadorSpan = document.getElementById('contador');
+    const emocionDiv = document.getElementById('emocion-detectada');
+    const preview = document.getElementById('imagenes-preview');
+    const inputEmocion = document.getElementById('inputEmocion');
 
-    // Activar cámara
+    let capturas = [];
+    let ultimaEmocion = "";
+
     navigator.mediaDevices.getUserMedia({ video: true })
-      .then(stream => video.srcObject = stream)
-      .catch(err => alert("No se pudo acceder a la cámara: " + err));
+      .then(stream => {
+        video.srcObject = stream;
+        detectarEmocion();
+      })
+      .catch(err => alert("No se pudo acceder a la cámara"));
 
-    function capturar() {
-      if (fotos.length >= 4) return;
+    capturarBtn.addEventListener('click', () => {
+      if (capturas.length >= 4) return;
 
-      const canvas = document.createElement('canvas');
-      canvas.width = 320;
-      canvas.height = 240;
-      const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const base64 = canvas.toDataURL('image/jpeg');
-      fotos.push(base64);
+      const imgData = canvas.toDataURL('image/jpeg');
+      capturas.push(imgData);
 
       const img = document.createElement('img');
-      img.src = base64;
-      img.width = 100;
+      img.src = imgData;
+      img.width = 60;
       preview.appendChild(img);
 
-      contador.textContent = `${fotos.length}/4`;
-      if (fotos.length === 4) {
-        btnEnviar.disabled = false;
+      contadorSpan.innerText = capturas.length;
+      if (capturas.length === 4) registrarBtn.disabled = false;
+    });
+
+    async function detectarEmocion() {
+      if (!video.paused && !video.ended) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = canvas.toDataURL('image/jpeg');
+
+        try {
+          const res = await fetch('/detectar_emocion', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imagen: imgData })
+          });
+          const data = await res.json();
+          if (data.emocion) {
+            ultimaEmocion = traducirEmocion(data.emocion);
+            inputEmocion.value = ultimaEmocion;
+            emocionDiv.innerHTML = `🧠 ${ultimaEmocion}`;
+          } else {
+            emocionDiv.innerHTML = `<span class="text-muted">❌ No detectado</span>`;
+          }
+        } catch (e) {
+          emocionDiv.innerHTML = `<span class="text-muted">❌ No detectado</span>`;
+        }
       }
+      setTimeout(detectarEmocion, 4000);
     }
 
-    document.getElementById('form-registro').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      const data = {
-        nombre: formData.get("nombre"),
-        cargo: formData.get("cargo"),
-        email: formData.get("email"),
-        imagenes: fotos
+    function traducirEmocion(e) {
+      const t = {
+        happy: '😄 Feliz', sad: '😢 Triste', angry: '😠 Enojado', neutral: '😐 Neutral',
+        disgust: '🤢 Disgustado', fear: '😨 Asustado', surprise: '😲 Sorprendido'
       };
+      return t[e] || e;
+    }
 
-      axios.post('/registro', data)
-        .then(res => alert(res.data.mensaje))
-        .catch(err => {
-          if (err.response && err.response.data && err.response.data.error) {
-            alert(err.response.data.error);
-          } else {
-            alert("Error inesperado.");
-          }
+    document.getElementById('registroForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+
+      const nombre = this.nombre.value;
+      const cargo = this.cargo.value;
+      const email = this.email.value;
+      const emocion = inputEmocion.value;
+
+      if (capturas.length !== 4) {
+        alert("Debes capturar 4 imágenes antes de registrar.");
+        return;
+      }
+
+      try {
+        const res = await fetch('/registro', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nombre, cargo, email, emocion, imagenes: capturas })
         });
+
+        const data = await res.json();
+        if (res.ok) {
+          alert(data.mensaje);
+          window.location.reload();
+        } else {
+          alert(data.error || "Error al registrar.");
+        }
+      } catch (error) {
+        alert("Error de red o inesperado.");
+      }
     });
   </script>
 </body>

@@ -6,6 +6,7 @@ from datetime import datetime
 from database.db import conectar_bd
 from PIL import Image
 from io import BytesIO
+from deepface import DeepFace
 
 login = Blueprint('login', __name__)
 
@@ -22,14 +23,36 @@ def login_usuario():
         img_data = base64.b64decode(imagen_base64.split(',')[1])
         image = face_recognition.load_image_file(BytesIO(img_data))
 
-        # Obtener codificación facial
+        # Codificar rostro actual
         codificaciones = face_recognition.face_encodings(image)
         if not codificaciones:
             return jsonify({'error': '❌ No se detectó ningún rostro en la imagen'}), 400
 
         cod_actual = codificaciones[0]
 
-        # Verificar contra usuarios en BD
+        # Analizar emoción
+        img_pil = Image.open(BytesIO(img_data))
+        img_pil.save("temp_login.jpg")  # Temporal
+
+        try:
+            resultado = DeepFace.analyze(img_path="temp_login.jpg", actions=['emotion'], enforce_detection=False)
+            emocion_detectada = resultado[0]['dominant_emotion']
+        except Exception as e:
+            emocion_detectada = "neutral"
+
+        # Traducir emociones
+        traduccion_emociones = {
+            "happy": "feliz",
+            "sad": "triste",
+            "neutral": "neutral",
+            "angry": "enojado",
+            "surprise": "sorprendido",
+            "fear": "asustado",
+            "disgust": "disgustado"
+        }
+        emocion_db = traduccion_emociones.get(emocion_detectada, "neutral")
+
+        # Verificar contra usuarios registrados
         conexion = conectar_bd()
         cursor = conexion.cursor()
         cursor.execute("SELECT id_usuario, nombre, vector_rostro FROM usuarios")
@@ -43,16 +66,16 @@ def login_usuario():
                 cursor.execute("""
                     INSERT INTO logs_login (id_usuario, ip, estado, emocion, dispositivo)
                     VALUES (%s, %s, %s, %s, %s)
-                """, (id_usuario, request.remote_addr, 'reconocido', 'pendiente', 'Webcam Navegador'))
+                """, (id_usuario, request.remote_addr, 'reconocido', emocion_db, 'Webcam Navegador'))
                 conexion.commit()
                 conexion.close()
                 return jsonify({'mensaje': f"✅ Bienvenido {nombre}"}), 200
 
-        # No se reconoció
+        # Si no fue reconocido
         cursor.execute("""
             INSERT INTO logs_login (id_usuario, ip, estado, emocion, dispositivo)
             VALUES (%s, %s, %s, %s, %s)
-        """, (None, request.remote_addr, 'fallido', 'desconocido', 'Webcam Navegador'))
+        """, (None, request.remote_addr, 'fallido', emocion_db, 'Webcam Navegador'))
         conexion.commit()
         conexion.close()
         return jsonify({'error': '❌ Usuario no reconocido'}), 401

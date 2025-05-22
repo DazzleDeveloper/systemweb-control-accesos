@@ -63,6 +63,14 @@
         </div>
     </div>
 
+    <!-- Imagen de pastel (emociones) en base64 si existe -->
+    {% if grafico_emociones_base64 %}
+    <div class="text-center mb-5">
+        <h4>📈 Emoción Dominante - Gráfico en Tiempo Real</h4>
+        <img src="data:image/png;base64,{{ grafico_emociones_base64 }}" alt="Distribución de emociones" class="img-fluid border">
+    </div>
+    {% endif %}
+
     <!-- Tabla -->
     <h4 class="mb-3">📋 Historial de Eventos</h4>
     <div class="table-responsive">
